@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
-import { ChevronLeft, ChevronRight, Settings, List, Sun, Moon, Play, Pause, Type, Palette } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Settings, List, Sun, Moon, Play, Pause, Type, PanelLeftRight } from 'lucide-react';
 import { parserService } from '../services/parserService';
 import { readingSessionService } from '../services/readingSessionService';
 import { sourceService } from '../services/sourceService';
 import { cn } from '../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
+import { Chapter } from '../types';
 
 const THEMES = [
   { id: 'parchment', name: '羊皮纸', bg: 'bg-[#f4ecd8]', text: 'text-zinc-800' },
@@ -20,6 +21,51 @@ const FONTS = [
   { id: 'serif', name: '宋体', family: 'font-serif' },
   { id: 'mono', name: '等宽', family: 'font-mono' },
 ];
+
+const READER_MODES = [
+  { id: 'scroll', name: '滚动' },
+  { id: 'paged', name: '翻页' },
+] as const;
+
+function isDividerLine(text: string) {
+  const normalized = text.trim();
+  if (!normalized) return false;
+  if (/^[*＊·•\-_=~—－]{3,}$/.test(normalized)) return true;
+  if (/^[*＊·•\s\-_=~—－]+$/.test(normalized)) return true;
+  if (/^[—\-_=~]{2,}.*[—\-_=~]{2,}$/.test(normalized) && normalized.length <= 30) return true;
+  return false;
+}
+
+function renderIndentedLines(text: string) {
+  return text.split('\n').map((line, index) => {
+    const normalizedLine = line.trim();
+
+    if (!normalizedLine) {
+      return <div key={`line-${index}`} className="h-6" />;
+    }
+
+    if (isDividerLine(normalizedLine)) {
+      return (
+        <div
+          key={`line-${index}`}
+          className="py-3 text-center text-sm tracking-[0.3em] text-zinc-400"
+        >
+          {normalizedLine}
+        </div>
+      );
+    }
+
+    return (
+      <p
+        key={`line-${index}`}
+        className="leading-inherit"
+        style={{ textIndent: '2em' }}
+      >
+        {normalizedLine}
+      </p>
+    );
+  });
+}
 
 export const Reader: React.FC = () => {
   const { id } = useParams();
@@ -37,6 +83,11 @@ export const Reader: React.FC = () => {
   const [showSettings, setShowSettings] = useState(false);
   const [chapterTitle, setChapterTitle] = useState('正文');
   const [chapterCount, setChapterCount] = useState(0);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [readerMode, setReaderMode] = useState<(typeof READER_MODES)[number]['id']>('scroll');
+  const [pageIndex, setPageIndex] = useState(0);
+  const [showCatalog, setShowCatalog] = useState(false);
+  const progressRestoredRef = useRef(false);
   
   // Auto-scroll state
   const [isAutoScrolling, setIsAutoScrolling] = useState(false);
@@ -60,6 +111,7 @@ export const Reader: React.FC = () => {
 
       const currentChapter = chapters[chapterIndex];
 
+      setChapters(chapters);
       setChapterCount(chapters.length);
       setChapterTitle(currentChapter?.title || '正文');
 
@@ -74,6 +126,63 @@ export const Reader: React.FC = () => {
 
     fetchReaderContent();
   }, [chapterIndex, id]);
+
+  useEffect(() => {
+    if (!id || !containerRef.current || progressRestoredRef.current) return;
+
+    const progress = readingSessionService.getProgress(id);
+    if (!progress) return;
+
+    if (progress.readerMode) {
+      setReaderMode(progress.readerMode);
+    }
+
+    if (progress.chapterIndex !== chapterIndex) {
+      navigate(`/reader/${id}?chapter=${progress.chapterIndex}`, { replace: true });
+      progressRestoredRef.current = true;
+      return;
+    }
+
+    if (typeof progress.pageIndex === 'number') {
+      setPageIndex(progress.pageIndex);
+    }
+
+    if (typeof progress.scrollTop === 'number') {
+      window.setTimeout(() => {
+        containerRef.current?.scrollTo({ top: progress.scrollTop || 0, behavior: 'auto' });
+      }, 0);
+    }
+
+    progressRestoredRef.current = true;
+  }, [chapterIndex, id, navigate]);
+
+  useEffect(() => {
+    setPageIndex(0);
+    if (containerRef.current) {
+      containerRef.current.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }
+    setIsAutoScrolling(false);
+  }, [chapterIndex, readerMode]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    const saveProgress = () => {
+      readingSessionService.saveProgress({
+        itemId: id,
+        chapterIndex,
+        pageIndex,
+        scrollTop: containerRef.current?.scrollTop || 0,
+        readerMode,
+        updatedAt: Date.now(),
+      });
+    };
+
+    saveProgress();
+    const element = containerRef.current;
+    element?.addEventListener('scroll', saveProgress, { passive: true });
+    return () => element?.removeEventListener('scroll', saveProgress);
+  }, [chapterIndex, id, pageIndex, readerMode]);
 
   // Auto-scroll logic
   useEffect(() => {
@@ -99,7 +208,72 @@ export const Reader: React.FC = () => {
   const goToChapter = (offset: number) => {
     const nextIndex = chapterIndex + offset;
     if (!id || nextIndex < 0 || nextIndex >= chapterCount) return;
-    navigate(`/reader/${id}?chapter=${nextIndex}`);
+    setPageIndex(0);
+    if (containerRef.current) {
+      containerRef.current.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }
+    navigate(`/reader/${id}?chapter=${nextIndex}`, { replace: true });
+  };
+
+  const jumpToChapter = (nextIndex: number) => {
+    if (!id || nextIndex < 0 || nextIndex >= chapterCount) return;
+    setShowCatalog(false);
+    setPageIndex(0);
+    if (containerRef.current) {
+      containerRef.current.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    }
+    navigate(`/reader/${id}?chapter=${nextIndex}`, { replace: true });
+  };
+
+  const estimatedPageSize = Math.max(700, Math.floor((2200 / Math.max(fontSize, 14)) * (1.9 / Math.max(lineHeight, 1))));
+  const pagedContent = content
+    ? content
+        .split(/\n{2,}/)
+        .filter(Boolean)
+        .reduce<string[]>((pages, paragraph) => {
+          const normalizedParagraph = paragraph.trim();
+          if (!normalizedParagraph) return pages;
+
+          const currentPage = pages[pages.length - 1] || '';
+          if ((currentPage + '\n\n' + normalizedParagraph).trim().length <= estimatedPageSize) {
+            pages[pages.length - 1] = currentPage
+              ? `${currentPage}\n\n${normalizedParagraph}`
+              : normalizedParagraph;
+            return pages;
+          }
+
+          if (normalizedParagraph.length <= estimatedPageSize) {
+            pages.push(normalizedParagraph);
+            return pages;
+          }
+
+          for (let index = 0; index < normalizedParagraph.length; index += estimatedPageSize) {
+            pages.push(normalizedParagraph.slice(index, index + estimatedPageSize));
+          }
+
+          return pages;
+        }, [''])
+        .filter(Boolean)
+    : [];
+
+  const pageCount = readerMode === 'paged' ? Math.max(pagedContent.length, 1) : 1;
+
+  const goToPrevious = () => {
+    if (readerMode === 'paged' && pageIndex > 0) {
+      setPageIndex((current) => current - 1);
+      return;
+    }
+
+    goToChapter(-1);
+  };
+
+  const goToNext = () => {
+    if (readerMode === 'paged' && pageIndex < pageCount - 1) {
+      setPageIndex((current) => current + 1);
+      return;
+    }
+
+    goToChapter(1);
   };
 
   useEffect(() => {
@@ -112,18 +286,18 @@ export const Reader: React.FC = () => {
 
       if (event.key === 'ArrowLeft') {
         event.preventDefault();
-        goToChapter(-1);
+        goToPrevious();
       }
 
       if (event.key === 'ArrowRight') {
         event.preventDefault();
-        goToChapter(1);
+        goToNext();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [chapterCount, chapterIndex, id]);
+  }, [chapterCount, chapterIndex, id, pageIndex, pageCount, readerMode]);
 
   return (
     <div 
@@ -145,7 +319,7 @@ export const Reader: React.FC = () => {
             className="fixed top-0 left-0 right-0 h-14 bg-black/80 backdrop-blur-md text-white flex items-center justify-between px-4 z-[110]"
             onClick={(e) => e.stopPropagation()}
           >
-            <button onClick={() => navigate(-1)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+            <button onClick={() => navigate(`/details/${id}`)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
               <ChevronLeft size={24} />
             </button>
             <h1 className="font-medium truncate max-w-[200px]">{chapterTitle}</h1>
@@ -185,27 +359,35 @@ export const Reader: React.FC = () => {
         }}
       >
         <h2 className="text-3xl font-bold mb-12 border-b border-zinc-200/20 pb-4">{chapterTitle}</h2>
-        <div
-          className="space-y-8 whitespace-pre-wrap"
-          style={{ textIndent: '2em' }}
-        >
-          {content || '加载中...'}
-        </div>
+        {readerMode === 'paged' ? (
+          <div className="min-h-[60vh] flex flex-col justify-between">
+            <div className="space-y-3">
+              {renderIndentedLines(pagedContent[pageIndex] || content || '加载中...')}
+            </div>
+            <div className="mt-8 flex items-center justify-center text-xs text-zinc-400">
+              第 {Math.min(pageIndex + 1, pageCount)} / {pageCount} 页
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {renderIndentedLines(content || '加载中...')}
+          </div>
+        )}
         
         <div className="mt-20 flex justify-between items-center py-10 border-t border-zinc-200/20">
           <button
-            onClick={() => goToChapter(-1)}
-            disabled={chapterIndex <= 0}
+            onClick={goToPrevious}
+            disabled={readerMode === 'paged' ? chapterIndex <= 0 && pageIndex <= 0 : chapterIndex <= 0}
             className="flex items-center gap-2 text-sm opacity-60 hover:opacity-100 transition-opacity disabled:opacity-30"
           >
-            <ChevronLeft size={16} /> 上一章
+            <ChevronLeft size={16} /> {readerMode === 'paged' ? '上一页' : '上一章'}
           </button>
           <button
-            onClick={() => goToChapter(1)}
-            disabled={chapterIndex >= chapterCount - 1}
+            onClick={goToNext}
+            disabled={readerMode === 'paged' ? chapterIndex >= chapterCount - 1 && pageIndex >= pageCount - 1 : chapterIndex >= chapterCount - 1}
             className="flex items-center gap-2 text-sm opacity-60 hover:opacity-100 transition-opacity disabled:opacity-30"
           >
-            下一章 <ChevronRight size={16} />
+            {readerMode === 'paged' ? '下一页' : '下一章'} <ChevronRight size={16} />
           </button>
         </div>
       </div>
@@ -280,6 +462,26 @@ export const Reader: React.FC = () => {
                 </div>
               </div>
 
+              <div className="space-y-3">
+                <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">翻页模式</span>
+                <div className="grid grid-cols-2 gap-2">
+                  {READER_MODES.map((mode) => (
+                    <button
+                      key={mode.id}
+                      onClick={() => setReaderMode(mode.id)}
+                      className={cn(
+                        "py-3 rounded-xl border-2 text-sm font-medium transition-all",
+                        readerMode === mode.id
+                          ? "border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-600"
+                          : "border-zinc-100 dark:border-zinc-800 text-zinc-500",
+                      )}
+                    >
+                      {mode.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
               {/* Fonts */}
               <div className="space-y-3">
                 <span className="text-xs font-bold text-zinc-400 uppercase tracking-wider">字体</span>
@@ -312,7 +514,10 @@ export const Reader: React.FC = () => {
             exit={{ y: 60 }}
             className="fixed bottom-0 left-0 right-0 h-16 bg-black/80 backdrop-blur-md text-white flex items-center justify-around px-4 z-50"
           >
-            <button className="flex flex-col items-center gap-1 opacity-70 hover:opacity-100">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowCatalog(true); }}
+              className="flex flex-col items-center gap-1 opacity-70 hover:opacity-100"
+            >
               <List size={20} />
               <span className="text-[10px]">目录</span>
             </button>
@@ -320,8 +525,8 @@ export const Reader: React.FC = () => {
               onClick={(e) => { e.stopPropagation(); setShowSettings(true); }}
               className="flex flex-col items-center gap-1 opacity-70 hover:opacity-100"
             >
-              <Type size={20} />
-              <span className="text-[10px]">排版</span>
+              <PanelLeftRight size={20} />
+              <span className="text-[10px]">{readerMode === 'paged' ? '翻页' : '排版'}</span>
             </button>
             <button 
               onClick={(e) => { e.stopPropagation(); setActiveTheme(activeTheme.id === 'dark' ? THEMES[0] : THEMES[3]); }}
@@ -330,6 +535,56 @@ export const Reader: React.FC = () => {
               {activeTheme.id === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
               <span className="text-[10px]">{activeTheme.id === 'dark' ? '日间' : '夜间'}</span>
             </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showCatalog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[130] bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowCatalog(false)}
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+              className="absolute inset-x-4 top-20 bottom-6 mx-auto max-w-2xl rounded-3xl bg-white text-zinc-900 shadow-2xl overflow-hidden"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+                <h3 className="text-lg font-bold">目录</h3>
+                <button onClick={() => setShowCatalog(false)} className="text-sm text-zinc-500 hover:text-zinc-900">
+                  关闭
+                </button>
+              </div>
+              <div className="h-full overflow-y-auto p-4 pb-24 space-y-2">
+                {chapters.length === 0 ? (
+                  <div className="py-10 text-center text-zinc-400">暂无目录</div>
+                ) : (
+                  chapters.map((chapter, index) => (
+                    <button
+                      key={`${chapter.url}-${index}`}
+                      onClick={() => jumpToChapter(index)}
+                      className={cn(
+                        "w-full rounded-2xl border px-4 py-3 text-left transition-colors",
+                        index === chapterIndex
+                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate">{chapter.title || `第 ${index + 1} 章`}</span>
+                        <span className="text-xs text-zinc-400 shrink-0">#{index + 1}</span>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>

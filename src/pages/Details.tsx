@@ -39,6 +39,7 @@ export const Details: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isCaching, setIsCaching] = useState(false);
   const [cacheProgress, setCacheProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [resumeChapterIndex, setResumeChapterIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -97,6 +98,9 @@ export const Details: React.FC = () => {
       }, null, 2));
 
       try {
+        const savedProgress = readingSessionService.getProgress(normalizedMediaItem.id);
+        setResumeChapterIndex(typeof savedProgress?.chapterIndex === 'number' ? savedProgress.chapterIndex : null);
+
         const cachedDetails = foundSource
           ? cacheService.getDetails(normalizedMediaItem.id, foundSource.id, normalizedMediaItem.detailUrl)
           : null;
@@ -172,6 +176,20 @@ export const Details: React.FC = () => {
     else navigate(`/player/${item.id}?chapter=${index}`);
   };
 
+  const handlePrimaryAction = () => {
+    if (!details || details.chapters.length === 0) {
+      return;
+    }
+
+    const targetIndex = resumeChapterIndex != null
+      && resumeChapterIndex >= 0
+      && resumeChapterIndex < details.chapters.length
+      ? resumeChapterIndex
+      : 0;
+
+    handleChapterClick(details.chapters[targetIndex], targetIndex);
+  };
+
   const handleCacheAllContent = async () => {
     if (!item || !source || !details || details.chapters.length === 0) {
       return;
@@ -218,7 +236,7 @@ export const Details: React.FC = () => {
           </div>
           <div className="flex flex-wrap justify-center sm:justify-start gap-3 pt-2">
             <button 
-              onClick={() => handleChapterClick(details.chapters[0], 0)}
+              onClick={handlePrimaryAction}
               disabled={details.chapters.length === 0}
               className={cn(
                 "px-8 py-3 rounded-full font-bold flex items-center gap-2 transition-all shadow-lg active:scale-95",
@@ -228,7 +246,7 @@ export const Details: React.FC = () => {
               )}
             >
               {item.type === 'book' || item.type === 'comic' ? <BookOpen size={20} /> : <Play size={20} />}
-              {details.chapters.length > 0 ? '立即开始' : '暂无可读章节'}
+              {details.chapters.length > 0 ? (resumeChapterIndex != null ? '继续阅读' : '立即开始') : '暂无可读章节'}
             </button>
             <button 
               onClick={toggleBookmark}

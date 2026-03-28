@@ -2,6 +2,16 @@ import { Chapter, MediaItem } from '../types';
 
 const CURRENT_ITEM_KEY = 'app_current_item';
 const CURRENT_CHAPTERS_KEY = 'app_current_chapters';
+const READING_PROGRESS_KEY = 'app_reading_progress';
+
+type ReadingProgress = {
+  itemId: string;
+  chapterIndex: number;
+  pageIndex?: number;
+  scrollTop?: number;
+  readerMode?: 'scroll' | 'paged';
+  updatedAt: number;
+};
 
 /**
  * 保存当前阅读会话，避免详情页跳到阅读页后丢失真实章节 URL。
@@ -45,5 +55,26 @@ export const readingSessionService = {
     }
 
     return [];
+  },
+
+  saveProgress(progress: ReadingProgress) {
+    sessionStorage.setItem(READING_PROGRESS_KEY, JSON.stringify(progress));
+    localStorage.setItem(READING_PROGRESS_KEY, JSON.stringify(progress));
+  },
+
+  getProgress(itemId?: string): ReadingProgress | null {
+    const saved = sessionStorage.getItem(READING_PROGRESS_KEY) || localStorage.getItem(READING_PROGRESS_KEY);
+    if (!saved) return null;
+
+    try {
+      const progress = JSON.parse(saved) as ReadingProgress;
+      if (!itemId || progress.itemId === itemId) {
+        return progress;
+      }
+    } catch (error) {
+      console.warn('Failed to parse reading progress:', error);
+    }
+
+    return null;
   }
 };

@@ -7,6 +7,8 @@ import { parserService } from '../services/parserService';
 import { readingSessionService } from '../services/readingSessionService';
 import { sourceService } from '../services/sourceService';
 import { cn } from '../lib/utils';
+import { AnimatePresence, motion } from 'motion/react';
+import { Chapter } from '../types';
 
 export const ComicViewer: React.FC = () => {
   const { id } = useParams();
@@ -17,6 +19,8 @@ export const ComicViewer: React.FC = () => {
   const [showControls, setShowControls] = useState(true);
   const [title, setTitle] = useState('漫画内容');
   const [chapterCount, setChapterCount] = useState(0);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [showCatalog, setShowCatalog] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -41,6 +45,7 @@ export const ComicViewer: React.FC = () => {
         readingSessionService.saveChapters(item.id, chapters);
       }
 
+      setChapters(chapters);
       setChapterCount(chapters.length);
 
       const currentChapter = chapters[chapterIndex];
@@ -57,10 +62,38 @@ export const ComicViewer: React.FC = () => {
     fetchComicContent();
   }, [chapterIndex, id]);
 
+  useEffect(() => {
+    if (!id) return;
+
+    const progress = readingSessionService.getProgress(id);
+    if (!progress) return;
+
+    if (progress.chapterIndex !== chapterIndex) {
+      navigate(`/comic/${id}?chapter=${progress.chapterIndex}`, { replace: true });
+    }
+  }, [chapterIndex, id, navigate]);
+
+  useEffect(() => {
+    if (!id) return;
+
+    readingSessionService.saveProgress({
+      itemId: id,
+      chapterIndex,
+      scrollTop: 0,
+      updatedAt: Date.now(),
+    });
+  }, [chapterIndex, id]);
+
   const goToChapter = (offset: number) => {
     const nextIndex = chapterIndex + offset;
     if (!id || nextIndex < 0 || nextIndex >= chapterCount) return;
-    navigate(`/comic/${id}?chapter=${nextIndex}`);
+    navigate(`/comic/${id}?chapter=${nextIndex}`, { replace: true });
+  };
+
+  const jumpToChapter = (nextIndex: number) => {
+    if (!id || nextIndex < 0 || nextIndex >= chapterCount) return;
+    setShowCatalog(false);
+    navigate(`/comic/${id}?chapter=${nextIndex}`, { replace: true });
   };
 
   useEffect(() => {
@@ -94,7 +127,7 @@ export const ComicViewer: React.FC = () => {
         !showControls && "-translate-y-full"
       )} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-2">
-          <button onClick={() => navigate(-1)} className="p-2"><ChevronLeft size={24} /></button>
+          <button onClick={() => navigate(`/details/${id}`)} className="p-2"><ChevronLeft size={24} /></button>
           <span className="font-medium truncate max-w-[150px]">{title}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -135,7 +168,10 @@ export const ComicViewer: React.FC = () => {
         !showControls && "translate-y-full"
       )} onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between max-w-2xl mx-auto">
-          <button className="flex flex-col items-center gap-1">
+          <button
+            onClick={() => setShowCatalog(true)}
+            className="flex flex-col items-center gap-1"
+          >
             <List size={20} />
             <span className="text-[10px]">目录</span>
           </button>
@@ -147,6 +183,56 @@ export const ComicViewer: React.FC = () => {
           <div className="w-10" /> {/* Spacer */}
         </div>
       </div>
+
+      <AnimatePresence>
+        {showCatalog && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[130] bg-black/50 backdrop-blur-sm"
+            onClick={() => setShowCatalog(false)}
+          >
+            <motion.div
+              initial={{ y: 40, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 40, opacity: 0 }}
+              className="absolute inset-x-4 top-20 bottom-6 mx-auto max-w-2xl rounded-3xl bg-white text-zinc-900 shadow-2xl overflow-hidden"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
+                <h3 className="text-lg font-bold">目录</h3>
+                <button onClick={() => setShowCatalog(false)} className="text-sm text-zinc-500 hover:text-zinc-900">
+                  关闭
+                </button>
+              </div>
+              <div className="h-full overflow-y-auto p-4 pb-24 space-y-2">
+                {chapters.length === 0 ? (
+                  <div className="py-10 text-center text-zinc-400">暂无目录</div>
+                ) : (
+                  chapters.map((chapter, index) => (
+                    <button
+                      key={`${chapter.url}-${index}`}
+                      onClick={() => jumpToChapter(index)}
+                      className={cn(
+                        "w-full rounded-2xl border px-4 py-3 text-left transition-colors",
+                        index === chapterIndex
+                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                          : "border-zinc-200 bg-white text-zinc-700 hover:bg-zinc-50",
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="truncate">{chapter.title || `第 ${index + 1} 话`}</span>
+                        <span className="text-xs text-zinc-400 shrink-0">#{index + 1}</span>
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

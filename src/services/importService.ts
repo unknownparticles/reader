@@ -20,6 +20,12 @@ function createFallbackId() {
 function normalizeImportEntry(url: string) {
   const trimmed = url.trim();
 
+  const githubBlobMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)\/blob\/([^/]+)\/(.+)$/i);
+  if (githubBlobMatch) {
+    const [, owner, repo, branch, filePath] = githubBlobMatch;
+    return `https://raw.githubusercontent.com/${owner}/${repo}/${branch}/${filePath}`;
+  }
+
   if (XIU2_REPO_PATTERN.test(trimmed)) {
     return 'https://raw.githubusercontent.com/XIU2/Yuedu/master/shuyuan';
   }
