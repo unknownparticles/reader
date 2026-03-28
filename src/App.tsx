@@ -17,7 +17,7 @@ import { ComicViewer } from './pages/ComicViewer';
 
 export default function App() {
   return (
-    <Router basename={import.meta.env.BASE_URL}>
+    <Router>
       <Layout>
         <Routes>
           <Route path="/" element={<Home />} />
