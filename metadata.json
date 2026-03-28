@@ -1,0 +1,5 @@
+{
+  "name": "多源聚合阅读器",
+  "description": "一个支持书源、漫画源、音频源和视频源的聚合阅读与播放应用。",
+  "requestFramePermissions": []
+}

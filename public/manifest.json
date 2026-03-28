@@ -1,0 +1,21 @@
+{
+  "short_name": "聚合阅读",
+  "name": "多源聚合阅读器",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/reader-icon/192/192",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://picsum.photos/seed/reader-icon/512/512",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#ffffff",
+  "display": "standalone",
+  "theme_color": "#3b82f6",
+  "description": "聚合书源、漫画、音视频的阅读器"
+}
