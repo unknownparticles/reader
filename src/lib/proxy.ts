@@ -9,6 +9,10 @@ function normalizeProxyBaseUrl() {
   return configured.replace(/\/+$/, '');
 }
 
+export function shouldPreferProxy() {
+  return !!(import.meta.env.VITE_PROXY_BASE_URL || '').trim();
+}
+
 export function buildProxyUrl(targetUrl: string, options?: string) {
   const proxyBaseUrl = normalizeProxyBaseUrl();
   const query = new URLSearchParams({ url: targetUrl });

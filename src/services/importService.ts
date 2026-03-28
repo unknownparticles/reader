@@ -1,5 +1,5 @@
 import { Source, SourceRequestConfig, SourceType } from '../types';
-import { buildProxyUrl } from '../lib/proxy';
+import { buildProxyUrl, shouldPreferProxy } from '../lib/proxy';
 
 const XIU2_REPO_PATTERN = /github\.com\/XIU2\/Yuedu/i;
 const XIU2_BITBUCKET_RAW_PATTERN = /bitbucket\.org\/xiu2\/yuedu\/raw\/master\/shuyuan/i;
@@ -112,11 +112,6 @@ function extractJsonPayload(text: string) {
 
   if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
     return JSON.parse(trimmed);
-  }
-
-  const arrayMatch = trimmed.match(/\[\s*\{[\s\S]*\}\s*\]/);
-  if (arrayMatch) {
-    return JSON.parse(arrayMatch[0]);
   }
 
   return null;
@@ -279,6 +274,22 @@ function yieldToBrowser() {
 }
 
 async function fetchImportText(url: string) {
+  const preferProxy = shouldPreferProxy() || url.startsWith('http://');
+
+  if (preferProxy) {
+    try {
+      const proxyResponse = await fetch(buildProxyUrl(url));
+      if (!proxyResponse.ok || proxyResponse.headers.get('X-Proxy-Error') === '1') {
+        return null;
+      }
+
+      return await proxyResponse.text();
+    } catch (error) {
+      console.warn('Proxy import fetch failed:', url, error);
+      return null;
+    }
+  }
+
   try {
     const directResponse = await fetch(url, {
       method: 'GET',
@@ -294,7 +305,7 @@ async function fetchImportText(url: string) {
 
   try {
     const proxyResponse = await fetch(buildProxyUrl(url));
-    if (!proxyResponse.ok) {
+    if (!proxyResponse.ok || proxyResponse.headers.get('X-Proxy-Error') === '1') {
       return null;
     }
 

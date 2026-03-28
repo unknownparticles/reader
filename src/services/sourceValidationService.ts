@@ -1,5 +1,5 @@
 import { Source, SourceValidationState } from '../types';
-import { buildProxyUrl } from '../lib/proxy';
+import { buildProxyUrl, shouldPreferProxy } from '../lib/proxy';
 import { sourceService } from './sourceService';
 
 const PLACEHOLDER_HOST_PATTERN = /(^|\.)example\.com$|localhost|127\.0\.0\.1/i;
@@ -47,6 +47,24 @@ function getProbeUrl(source: Source) {
 }
 
 async function fetchValidationResponse(url: string) {
+  const preferProxy = shouldPreferProxy() || url.startsWith('http://');
+
+  if (preferProxy) {
+    try {
+      const proxyResponse = await fetch(buildProxyUrl(url));
+      if (!proxyResponse.ok || proxyResponse.headers.get('X-Proxy-Error') === '1') {
+        return {
+          ok: false as const,
+          status: proxyResponse.headers.get('X-Proxy-Status') || undefined,
+        };
+      }
+
+      return { ok: true as const };
+    } catch (error) {
+      return { ok: false as const };
+    }
+  }
+
   try {
     const directResponse = await fetch(url, {
       method: 'GET',
