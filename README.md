@@ -99,6 +99,21 @@ http://localhost:3000
 
 - 这个项目开发时不是直接跑 Vite 默认端口，而是通过 `server.ts` 启动
 - `3000` 端口同时承担页面访问和代理请求
+- 线上静态部署时，可通过 `VITE_PROXY_BASE_URL` 指向外部代理服务
+
+### 代理环境变量
+
+如果你使用外部代理服务，例如 Cloudflare Worker，可配置：
+
+```bash
+VITE_PROXY_BASE_URL=https://reader.aliveservice.asia/api/proxy
+```
+
+本地开发如果不配置，默认仍然走：
+
+```text
+/api/proxy
+```
 
 ### 运行类型检查
 

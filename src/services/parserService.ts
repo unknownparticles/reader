@@ -1,4 +1,6 @@
 import { Source, MediaItem, Chapter, SourceRequestConfig } from '../types';
+import { contentCacheService } from './contentCacheService';
+import { buildProxyUrl } from '../lib/proxy';
 
 type ParsedPayload =
   | { kind: 'html'; data: Document }
@@ -883,12 +885,7 @@ export const parserService = {
     const timeoutId = window.setTimeout(() => controller.abort(), 8000);
 
     const requestPromise = (async () => {
-      const query = new URLSearchParams({ url });
-      if (requestOptions) {
-        query.set('options', requestOptions);
-      }
-
-      const response = await fetch(`/api/proxy?${query.toString()}`, {
+      const response = await fetch(buildProxyUrl(url, requestOptions), {
         signal: controller.signal,
       });
 
@@ -1134,9 +1131,19 @@ export const parserService = {
     }
   },
   
-  async getContent(chapter: Chapter, source?: Source): Promise<string> {
+  async getContent(chapter: Chapter, source?: Source, options?: { itemId?: string; preferCache?: boolean }): Promise<string> {
     if (!source || !chapter.url) {
       return '这是示例章节内容...\n\n聚合阅读器正在解析您的自定义源规则。';
+    }
+
+    const itemId = options?.itemId;
+    const preferCache = options?.preferCache !== false;
+
+    if (itemId && preferCache) {
+      const cachedContent = await contentCacheService.getChapterContent(itemId, source.id, chapter.url);
+      if (cachedContent) {
+        return cachedContent;
+      }
     }
 
     try {
@@ -1158,6 +1165,9 @@ export const parserService = {
       if (source.type === 'comic') {
         const comicContent = this.getComicContent(text, source, contentUrl);
         if (comicContent) {
+          if (itemId) {
+            await contentCacheService.saveChapterContent(itemId, source.id, chapter.url, comicContent);
+          }
           return comicContent;
         }
       }
@@ -1218,11 +1228,58 @@ export const parserService = {
         hasHtmlImages: mergedContent.includes('<img'),
       }));
 
-      return normalizedContent || '解析内容失败';
+      const finalContent = normalizedContent || '解析内容失败';
+      if (itemId) {
+        await contentCacheService.saveChapterContent(itemId, source.id, chapter.url, finalContent);
+      }
+
+      return finalContent;
     } catch (e) {
       console.error('Failed to get content:', e);
       return '获取内容失败';
     }
+  },
+
+  async cacheAllContent(
+    item: MediaItem,
+    source: Source,
+    chapters: Chapter[],
+    options?: { concurrency?: number; onProgress?: (completed: number, total: number) => void },
+  ) {
+    const concurrency = Math.max(1, Math.min(options?.concurrency || 3, 6));
+    let completed = 0;
+    let currentIndex = 0;
+
+    const worker = async () => {
+      while (true) {
+        const index = currentIndex++;
+        if (index >= chapters.length) {
+          return;
+        }
+
+        const chapter = chapters[index];
+        if (!chapter?.url) {
+          completed += 1;
+          options?.onProgress?.(completed, chapters.length);
+          continue;
+        }
+
+        const cachedContent = await contentCacheService.getChapterContent(item.id, source.id, chapter.url);
+        if (!cachedContent) {
+          await this.getContent(chapter, source, {
+            itemId: item.id,
+            preferCache: false,
+          });
+        }
+
+        completed += 1;
+        options?.onProgress?.(completed, chapters.length);
+      }
+    };
+
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, chapters.length) }, () => worker()),
+    );
   },
 
   // Helper to parse lists (search/discovery)

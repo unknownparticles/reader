@@ -35,6 +35,8 @@ jobs:
         run: npm ci
 
       - name: Build site
+        env:
+          VITE_PROXY_BASE_URL: https://reader.aliveservice.asia/api/proxy
         run: npm run build
 
       - name: Upload Pages artifact

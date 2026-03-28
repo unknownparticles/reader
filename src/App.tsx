@@ -14,6 +14,7 @@ import { Reader } from './pages/Reader';
 import { Bookshelf } from './pages/Bookshelf';
 import { Player } from './pages/Player';
 import { ComicViewer } from './pages/ComicViewer';
+import { CacheManager } from './pages/CacheManager';
 
 export default function App() {
   return (
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/search" element={<Search />} />
           <Route path="/settings" element={<Settings />} />
           <Route path="/bookshelf" element={<Bookshelf />} />
+          <Route path="/cache" element={<CacheManager />} />
           <Route path="/details/:id" element={<Details />} />
           <Route path="/reader/:id" element={<Reader />} />
           <Route path="/player/:id" element={<Player />} />

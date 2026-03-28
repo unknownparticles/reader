@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Book, Settings, Home, Search, Sparkles } from 'lucide-react';
+import { Book, Settings, Home, Search, Sparkles, Database } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 const navItems = [
@@ -8,6 +8,7 @@ const navItems = [
   { icon: Sparkles, label: '推荐', path: '/discovery' },
   { icon: Search, label: '搜索', path: '/search' },
   { icon: Book, label: '书架', path: '/bookshelf' },
+  { icon: Database, label: '缓存', path: '/cache' },
   { icon: Settings, label: '设置', path: '/settings' },
 ];
 

@@ -68,7 +68,7 @@ export const Reader: React.FC = () => {
         return;
       }
 
-      const chapterContent = await parserService.getContent(currentChapter, source);
+      const chapterContent = await parserService.getContent(currentChapter, source, { itemId: id });
       setContent(chapterContent);
     };
 

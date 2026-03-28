@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ChevronLeft, Play, BookOpen, Heart, Share2, Info } from 'lucide-react';
+import { ChevronLeft, Play, BookOpen, Heart, Share2, Info, Download, Loader2 } from 'lucide-react';
 import { parserService } from '../services/parserService';
 import { bookshelfService } from '../services/bookshelfService';
 import { mediaItemService } from '../services/mediaItemService';
 import { imageService } from '../services/imageService';
 import { readingSessionService } from '../services/readingSessionService';
 import { sourceService } from '../services/sourceService';
+import { cacheService } from '../services/cacheService';
 import { MediaItem, Chapter, Source } from '../types';
 import { cn } from '../lib/utils';
 
@@ -36,6 +37,8 @@ export const Details: React.FC = () => {
   const [isBookmarked, setIsBookmarked] = useState(false);
   const [source, setSource] = useState<Source | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isCaching, setIsCaching] = useState(false);
+  const [cacheProgress, setCacheProgress] = useState<{ completed: number; total: number } | null>(null);
 
   useEffect(() => {
     if (!id) return;
@@ -94,10 +97,35 @@ export const Details: React.FC = () => {
       }, null, 2));
 
       try {
+        const cachedDetails = foundSource
+          ? cacheService.getDetails(normalizedMediaItem.id, foundSource.id, normalizedMediaItem.detailUrl)
+          : null;
+
+        if (cachedDetails) {
+          const cachedResult = {
+            description: cachedDetails.description,
+            chapters: cachedDetails.chapters,
+          };
+          setDetails(cachedResult);
+          readingSessionService.saveItem(normalizedMediaItem);
+          readingSessionService.saveChapters(normalizedMediaItem.id, cachedResult.chapters);
+          setIsLoading(false);
+          return;
+        }
+
         const result = await parserService.getDetails(normalizedMediaItem, foundSource || undefined);
         setDetails(result);
         readingSessionService.saveItem(normalizedMediaItem);
         readingSessionService.saveChapters(normalizedMediaItem.id, result.chapters);
+        if (foundSource && normalizedMediaItem.detailUrl) {
+          cacheService.saveDetails(
+            normalizedMediaItem.id,
+            foundSource.id,
+            normalizedMediaItem.detailUrl,
+            result.description,
+            result.chapters,
+          );
+        }
       } catch (error) {
         console.error('Failed to fetch details:', error);
       } finally {
@@ -142,6 +170,26 @@ export const Details: React.FC = () => {
     if (item.type === 'book') navigate(`/reader/${item.id}?chapter=${index}`);
     else if (item.type === 'comic') navigate(`/comic/${item.id}?chapter=${index}`);
     else navigate(`/player/${item.id}?chapter=${index}`);
+  };
+
+  const handleCacheAllContent = async () => {
+    if (!item || !source || !details || details.chapters.length === 0) {
+      return;
+    }
+
+    setIsCaching(true);
+    setCacheProgress({ completed: 0, total: details.chapters.length });
+
+    try {
+      await parserService.cacheAllContent(item, source, details.chapters, {
+        concurrency: item.type === 'comic' ? 2 : 3,
+        onProgress: (completed, total) => setCacheProgress({ completed, total }),
+      });
+    } catch (error) {
+      console.error('Failed to cache all content:', error);
+    } finally {
+      setIsCaching(false);
+    }
   };
 
   return (
@@ -193,6 +241,21 @@ export const Details: React.FC = () => {
             </button>
             <button className="p-3 rounded-full bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50 transition-all active:scale-95">
               <Share2 size={20} />
+            </button>
+            <button
+              onClick={handleCacheAllContent}
+              disabled={isCaching || details.chapters.length === 0}
+              className={cn(
+                "px-4 py-3 rounded-full border transition-all active:scale-95 flex items-center gap-2",
+                isCaching
+                  ? "bg-amber-50 border-amber-200 text-amber-700"
+                  : "bg-white border-zinc-200 text-zinc-600 hover:bg-zinc-50",
+              )}
+            >
+              {isCaching ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+              {isCaching && cacheProgress
+                ? `缓存中 ${cacheProgress.completed}/${cacheProgress.total}`
+                : item.type === 'comic' ? '缓存整部' : '缓存全书'}
             </button>
           </div>
         </div>

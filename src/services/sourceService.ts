@@ -1,4 +1,4 @@
-import { Source, SourceRequestConfig } from '../types';
+import { Source, SourceRequestConfig, SourceValidationState } from '../types';
 
 const DEFAULT_SOURCES: Source[] = [
   {
@@ -12,14 +12,16 @@ const DEFAULT_SOURCES: Source[] = [
       list: '.item',
       name: '.title',
       detailUrl: 'a.link'
-    }
+    },
+    validation: { status: 'unchecked' },
   },
   {
     id: 'demo-comic',
     name: '示例漫画源 (模拟)',
     type: 'comic',
     baseUrl: 'https://example.com',
-    enabled: true
+    enabled: true,
+    validation: { status: 'unchecked' },
   }
 ];
 
@@ -49,7 +51,42 @@ export const sourceService = {
       source.enabled = !source.enabled;
       sourceService.saveSources(sources);
     }
-  }
+  },
+
+  updateValidation: (id: string, validation: SourceValidationState) => {
+    const sources = sourceService.getSources();
+    const source = sources.find((currentSource) => currentSource.id === id);
+    if (!source) return;
+    source.validation = validation;
+    sourceService.saveSources(sources);
+  },
+
+  updateValidationBatch: (updates: Array<{ id: string; validation: SourceValidationState }>) => {
+    const updateMap = new Map(updates.map((item) => [item.id, item.validation]));
+    const sources = sourceService.getSources();
+    let changed = false;
+
+    sources.forEach((source) => {
+      const validation = updateMap.get(source.id);
+      if (!validation) return;
+      source.validation = validation;
+      changed = true;
+    });
+
+    if (changed) {
+      sourceService.saveSources(sources);
+    }
+  },
+
+  removeInvalidSources: () => {
+    const sources = sourceService.getSources();
+    const filteredSources = sources.filter((source) => source.validation?.status !== 'invalid');
+    sourceService.saveSources(filteredSources);
+    return {
+      removedCount: sources.length - filteredSources.length,
+      sources: filteredSources,
+    };
+  },
 };
 
 function inferStoredSourceType(source: Source) {
@@ -195,6 +232,13 @@ function sanitizeSource(source: Source): Source {
       userAgent: sanitizeRuleValue(source.rulePlay.userAgent),
       referer: sanitizeRuleValue(source.rulePlay.referer),
     } : undefined,
+    validation: source.validation?.status
+      ? {
+          status: source.validation.status,
+          checkedAt: source.validation.checkedAt,
+          error: sanitizeRuleValue(source.validation.error),
+        }
+      : { status: 'unchecked' },
   };
 }
 

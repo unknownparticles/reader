@@ -1,4 +1,11 @@
 export type SourceType = 'book' | 'comic' | 'audio' | 'video' | 'live';
+export type SourceValidationStatus = 'unchecked' | 'checking' | 'valid' | 'invalid';
+
+export interface SourceValidationState {
+  status: SourceValidationStatus;
+  checkedAt?: number;
+  error?: string;
+}
 
 export interface SourceRequestConfig {
   method?: string;
@@ -17,6 +24,7 @@ export interface Source {
   group?: string;
   order?: number;
   exploreUrl?: string;
+  validation?: SourceValidationState;
   
   // Legado-style rules (simplified for cross-media support)
   ruleSearch?: {

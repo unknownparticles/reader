@@ -6,6 +6,7 @@ import { mediaItemService } from '../services/mediaItemService';
 import { imageService } from '../services/imageService';
 import { parserService } from '../services/parserService';
 import { sourceService } from '../services/sourceService';
+import { cacheService } from '../services/cacheService';
 import { cn } from '../lib/utils';
 
 const SEARCH_SESSION_KEY = 'app_search_session';
@@ -130,6 +131,14 @@ export const Search: React.FC = () => {
       const searchSources = selectedSourceId === 'all'
         ? visibleSources
         : visibleSources.filter(s => s.id === selectedSourceId);
+      const sourceIds = searchSources.map((source) => source.id);
+      const cachedSearch = cacheService.getSearchResults(query, sourceIds);
+
+      if (cachedSearch?.results?.length) {
+        setResults(cachedSearch.results);
+        setIsSearching(false);
+        return;
+      }
         
       const searchResults = await parserService.search(query, searchSources, {
         signal: searchAbortController.signal,
@@ -141,6 +150,8 @@ export const Search: React.FC = () => {
       if (searchAbortController.signal.aborted) {
         return;
       }
+
+      cacheService.saveSearchResults(query, sourceIds, searchResults);
 
       // 只有真正拿到新结果时才覆盖旧结果，避免更新失败时页面变空。
       if (searchResults.length > 0 || results.length === 0) {

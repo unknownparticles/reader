@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Globe, Trash2, CheckCircle2, Circle, X, Download, Loader2 } from 'lucide-react';
+import { Plus, Globe, Trash2, CheckCircle2, Circle, X, Download, Loader2, Wand2, ShieldAlert, ScanSearch } from 'lucide-react';
 import { sourceService } from '../services/sourceService';
 import { importService } from '../services/importService';
+import { sourceValidationService } from '../services/sourceValidationService';
 import { Source } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -11,10 +12,17 @@ export const Settings: React.FC = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importUrl, setImportUrl] = useState('');
   const [isImporting, setIsImporting] = useState(false);
+  const [isOrganizing, setIsOrganizing] = useState(false);
+  const [isCheckingSources, setIsCheckingSources] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   useEffect(() => {
     setSources(sourceService.getSources());
+    const intervalId = window.setInterval(() => {
+      setSources(sourceService.getSources());
+    }, 1500);
+
+    return () => window.clearInterval(intervalId);
   }, []);
 
   const toggleSource = (id: string) => {
@@ -33,7 +41,8 @@ export const Settings: React.FC = () => {
     setIsImporting(true);
     setMessage(null);
     try {
-      const newSources = await importService.importFromUrl(importUrl);
+      const result = await importService.importFromUrl(importUrl);
+      const newSources = result.sources;
       const existing = sourceService.getSources();
       const merged = [...existing];
       
@@ -47,7 +56,11 @@ export const Settings: React.FC = () => {
       
       sourceService.saveSources(merged);
       setSources(merged);
-      setMessage({ type: 'success', text: `成功导入 ${addedCount} 个新源` });
+      void sourceValidationService.validateSourcesInBackground(newSources.map((source) => source.id));
+      setMessage({
+        type: 'success',
+        text: `成功导入 ${addedCount} 个新源，静态过滤 ${result.summary.filtered} 个明显异常源，后台正在检查可用性`,
+      });
       setTimeout(() => {
         setShowImportModal(false);
         setImportUrl('');
@@ -58,6 +71,72 @@ export const Settings: React.FC = () => {
     } finally {
       setIsImporting(false);
     }
+  };
+
+  const handleOrganize = async () => {
+    setIsOrganizing(true);
+    setMessage(null);
+
+    try {
+      const currentSources = sourceService.getSources();
+      const result = await importService.organizeSources(currentSources);
+
+      sourceService.saveSources(result.sources);
+      setSources(sourceService.getSources());
+      void sourceValidationService.validateSourcesInBackground(result.sources.map((source) => source.id));
+      setMessage({
+        type: 'success',
+        text: `整理完成，保留 ${result.summary.kept} 个源，去重 ${result.summary.deduped} 个，过滤 ${result.summary.filtered} 个明显异常源，后台正在重新检查`,
+      });
+    } catch (error) {
+      setMessage({ type: 'error', text: '整理失败，请稍后重试' });
+    } finally {
+      setIsOrganizing(false);
+    }
+  };
+
+  const handleValidateAll = async () => {
+    setIsCheckingSources(true);
+    setMessage(null);
+
+    try {
+      await sourceValidationService.validateSourcesInBackground();
+      setSources(sourceService.getSources());
+      setMessage({ type: 'success', text: '书源后台检查已完成' });
+    } catch (error) {
+      setMessage({ type: 'error', text: '书源检查失败，请稍后重试' });
+    } finally {
+      setIsCheckingSources(false);
+    }
+  };
+
+  const handleRemoveInvalidSources = () => {
+    const result = sourceService.removeInvalidSources();
+    setSources(result.sources);
+    setMessage({
+      type: 'success',
+      text: `已清理 ${result.removedCount} 个无效书源`,
+    });
+  };
+
+  const invalidSourceCount = sources.filter((source) => source.validation?.status === 'invalid').length;
+
+  const renderValidationBadge = (source: Source) => {
+    const status = source.validation?.status || 'unchecked';
+
+    if (status === 'valid') {
+      return <span className="text-[10px] px-2 py-0.5 rounded-full bg-green-50 text-green-600">有效</span>;
+    }
+
+    if (status === 'invalid') {
+      return <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600">无效</span>;
+    }
+
+    if (status === 'checking') {
+      return <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">检查中</span>;
+    }
+
+    return <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-100 text-zinc-500">未检查</span>;
   };
 
   return (
@@ -73,14 +152,49 @@ export const Settings: React.FC = () => {
             <Globe size={20} />
             源管理
           </h3>
-          <button 
-            onClick={() => setShowImportModal(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
-          >
-            <Plus size={16} />
-            导入源
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleValidateAll}
+              disabled={isCheckingSources || isImporting || sources.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-white border border-zinc-200 text-zinc-700 rounded-xl text-sm font-medium hover:bg-zinc-50 transition-colors disabled:opacity-50"
+            >
+              {isCheckingSources ? <Loader2 className="animate-spin" size={16} /> : <ScanSearch size={16} />}
+              {isCheckingSources ? '检查中...' : '检查全部'}
+            </button>
+            <button
+              onClick={handleOrganize}
+              disabled={isOrganizing || isImporting || isCheckingSources || sources.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-zinc-100 text-zinc-700 rounded-xl text-sm font-medium hover:bg-zinc-200 transition-colors disabled:opacity-50"
+            >
+              {isOrganizing ? <Loader2 className="animate-spin" size={16} /> : <Wand2 size={16} />}
+              {isOrganizing ? '整理中...' : '整理已导入源'}
+            </button>
+            <button
+              onClick={handleRemoveInvalidSources}
+              disabled={invalidSourceCount === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-red-50 text-red-600 rounded-xl text-sm font-medium hover:bg-red-100 transition-colors disabled:opacity-50"
+            >
+              <ShieldAlert size={16} />
+              清理无效
+            </button>
+            <button 
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-xl text-sm font-medium hover:bg-blue-700 transition-colors"
+            >
+              <Plus size={16} />
+              导入源
+            </button>
+          </div>
         </div>
+
+        {message && !showImportModal && (
+          <div className={cn(
+            "p-3 rounded-xl text-sm font-medium",
+            message.type === 'success' ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"
+          )}>
+            {message.text}
+          </div>
+        )}
 
         <div className="grid gap-3">
           {sources.map((source) => (
@@ -102,10 +216,14 @@ export const Settings: React.FC = () => {
                     <span className="text-[10px] px-1.5 py-0.5 bg-zinc-100 text-zinc-500 rounded uppercase font-bold tracking-tighter">
                       {source.type}
                     </span>
+                    {renderValidationBadge(source)}
                     {source.group && (
                       <span className="text-[10px] text-zinc-400">· {source.group}</span>
                     )}
                   </div>
+                  {source.validation?.status === 'invalid' && source.validation.error && (
+                    <p className="mt-1 text-[11px] text-red-500 line-clamp-1">{source.validation.error}</p>
+                  )}
                 </div>
               </div>
               <button 

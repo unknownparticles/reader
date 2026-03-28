@@ -4,6 +4,7 @@ import { ChevronLeft, List, Settings, Download } from 'lucide-react';
 import { mediaItemService } from '../services/mediaItemService';
 import { imageService } from '../services/imageService';
 import { parserService } from '../services/parserService';
+import { readingSessionService } from '../services/readingSessionService';
 import { sourceService } from '../services/sourceService';
 import { cn } from '../lib/utils';
 
@@ -33,16 +34,22 @@ export const ComicViewer: React.FC = () => {
 
       setTitle(item.title);
 
-      const details = await parserService.getDetails(item, source);
-      setChapterCount(details.chapters.length);
+      let chapters = readingSessionService.getChapters(id);
+      if (chapters.length === 0) {
+        const details = await parserService.getDetails(item, source);
+        chapters = details.chapters;
+        readingSessionService.saveChapters(item.id, chapters);
+      }
 
-      const currentChapter = details.chapters[chapterIndex];
+      setChapterCount(chapters.length);
+
+      const currentChapter = chapters[chapterIndex];
       if (!currentChapter) {
         setImages([]);
         return;
       }
 
-      const content = await parserService.getContent(currentChapter, source);
+      const content = await parserService.getContent(currentChapter, source, { itemId: id });
       const comicImages = parserService.extractImageUrlsFromContent(content);
       setImages(comicImages);
     };

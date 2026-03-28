@@ -1,4 +1,5 @@
 import { Source, SourceRequestConfig, SourceType } from '../types';
+import { buildProxyUrl } from '../lib/proxy';
 
 const XIU2_REPO_PATTERN = /github\.com\/XIU2\/Yuedu/i;
 const XIU2_BITBUCKET_RAW_PATTERN = /bitbucket\.org\/xiu2\/yuedu\/raw\/master\/shuyuan/i;
@@ -233,6 +234,23 @@ function dedupeSources(sources: Source[]) {
   return Array.from(uniqueSources.values());
 }
 
+interface ImportSummary {
+  total: number;
+  parsed: number;
+  deduped: number;
+  filtered: number;
+  kept: number;
+}
+
+export interface ImportResult {
+  sources: Source[];
+  summary: ImportSummary;
+}
+
+function shouldKeepImportedSource(source: Source) {
+  return !!source.name?.trim() && (!!source.baseUrl || !!source.exploreUrl);
+}
+
 function shouldKeepComicSource(raw: any) {
   const group = `${raw.bookSourceGroup || raw.sourceGroup || ''}`.toLowerCase();
   const name = `${raw.bookSourceName || raw.sourceName || ''}`.toLowerCase();
@@ -252,6 +270,33 @@ function yieldToBrowser() {
   return new Promise<void>((resolve) => {
     window.setTimeout(resolve, 0);
   });
+}
+
+async function fetchImportText(url: string) {
+  try {
+    const directResponse = await fetch(url, {
+      method: 'GET',
+      redirect: 'follow',
+    });
+
+    if (directResponse.ok) {
+      return await directResponse.text();
+    }
+  } catch (error) {
+    console.info('Direct import fetch failed, falling back to proxy:', url, error);
+  }
+
+  try {
+    const proxyResponse = await fetch(buildProxyUrl(url));
+    if (!proxyResponse.ok) {
+      return null;
+    }
+
+    return await proxyResponse.text();
+  } catch (error) {
+    console.warn('Proxy import fetch failed:', url, error);
+    return null;
+  }
 }
 
 function inferTypeFromText(name: string, group: string, baseUrl: string): SourceType {
@@ -277,7 +322,7 @@ function inferTypeFromText(name: string, group: string, baseUrl: string): Source
 }
 
 export const importService = {
-  async importFromUrl(url: string): Promise<Source[]> {
+  async importFromUrl(url: string): Promise<ImportResult> {
     try {
       const comicOnly = shouldImportOnlyComicSources(url);
 
@@ -285,7 +330,7 @@ export const importService = {
       if (url.trim().startsWith('[') || url.trim().startsWith('{')) {
         try {
           const data = JSON.parse(url);
-          return await this.parseSourcesInBatches(data, { comicOnly });
+          return await this.finalizeImportedSources(data, { comicOnly });
         } catch (e) {
           throw new Error('无效的 JSON 格式');
         }
@@ -300,17 +345,15 @@ export const importService = {
         if (!currentUrl || visited.has(currentUrl)) continue;
         visited.add(currentUrl);
 
-        const response = await fetch(`/api/proxy?url=${encodeURIComponent(currentUrl)}`);
-        if (!response.ok) {
+        const text = await fetchImportText(currentUrl);
+        if (!text) {
           continue;
         }
-
-        const text = await response.text();
 
         try {
           const data = extractJsonPayload(text);
           if (data) {
-            const parsedSources = await this.parseSourcesInBatches(data, { comicOnly });
+            const parsedSources = this.parseSources(data, { comicOnly });
             parsedSources.forEach((source) => {
               if (!importedSources.has(source.id)) {
                 importedSources.set(source.id, source);
@@ -332,7 +375,19 @@ export const importService = {
 
       const dedupedSources = Array.from(importedSources.values());
       if (dedupedSources.length > 0) {
-        return dedupedSources;
+        return {
+          sources: dedupedSources.filter((source) => shouldKeepImportedSource(source)).map((source) => ({
+            ...source,
+            validation: { status: 'unchecked' },
+          })),
+          summary: {
+            total: dedupedSources.length,
+            parsed: dedupedSources.length,
+            deduped: 0,
+            filtered: dedupedSources.filter((source) => !shouldKeepImportedSource(source)).length,
+            kept: dedupedSources.filter((source) => shouldKeepImportedSource(source)).length,
+          },
+        };
       }
 
       throw new Error('未能从该链接解析出可导入的书源，请尝试仓库首页或原始源文件链接');
@@ -340,6 +395,42 @@ export const importService = {
       console.error('Import error:', error);
       throw error;
     }
+  },
+
+  async finalizeImportedSources(data: any, options?: { comicOnly?: boolean }): Promise<ImportResult> {
+    const rawSources = Array.isArray(data) ? data : [data];
+    const parsedSources = await this.parseSourcesInBatches(rawSources, options);
+    const filteredSources = parsedSources.filter((source) => shouldKeepImportedSource(source)).map((source) => ({
+      ...source,
+      validation: { status: 'unchecked' as const },
+    }));
+
+    return {
+      sources: filteredSources,
+      summary: {
+        total: rawSources.length,
+        parsed: parsedSources.length,
+        deduped: parsedSources.length - dedupeSources(parsedSources).length,
+        filtered: parsedSources.length - filteredSources.length,
+        kept: filteredSources.length,
+      },
+    };
+  },
+
+  async organizeSources(sources: Source[]): Promise<ImportResult> {
+    const dedupedSources = dedupeSources(sources);
+    const filteredSources = dedupedSources.filter((source) => shouldKeepImportedSource(source));
+
+    return {
+      sources: filteredSources,
+      summary: {
+        total: sources.length,
+        parsed: sources.length,
+        deduped: sources.length - dedupedSources.length,
+        filtered: dedupedSources.length - filteredSources.length,
+        kept: filteredSources.length,
+      },
+    };
   },
 
   parseSources(data: any, options?: { comicOnly?: boolean }): Source[] {
@@ -412,6 +503,7 @@ export const importService = {
       type: this.inferType(raw),
       baseUrl: sourceUrl,
       enabled: true,
+      validation: { status: 'unchecked' },
       group: raw.bookSourceGroup || raw.sourceGroup,
       exploreUrl: normalizeRuleText(raw.exploreUrl),
       ruleSearch: {
