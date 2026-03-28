@@ -1,19 +1,23 @@
 {
   "short_name": "聚合阅读",
   "name": "多源聚合阅读器",
+  "id": "/reader/",
   "icons": [
     {
-      "src": "https://picsum.photos/seed/reader-icon/192/192",
-      "type": "image/png",
-      "sizes": "192x192"
+      "src": "./icons/icon-192.svg",
+      "type": "image/svg+xml",
+      "sizes": "192x192",
+      "purpose": "any"
     },
     {
-      "src": "https://picsum.photos/seed/reader-icon/512/512",
-      "type": "image/png",
-      "sizes": "512x512"
+      "src": "./icons/icon-512.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512",
+      "purpose": "any"
     }
   ],
-  "start_url": "/",
+  "start_url": "./",
+  "scope": "/reader/",
   "background_color": "#ffffff",
   "display": "standalone",
   "theme_color": "#3b82f6",
